@@ -6,7 +6,7 @@
 <title>Scanner — ระบบจัดการสินค้าส่งคืน</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Mitr:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 :root {
@@ -19,8 +19,8 @@
   --text-w: #ffffff;
   --text-ws: rgba(255,255,255,0.75);
   --text-wm: rgba(255,255,255,0.55);
-  --font-display: 'Kanit', sans-serif;
-  --font-body: 'Kanit', sans-serif;
+  --font-display: 'Mitr', sans-serif;
+  --font-body: 'Mitr', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -122,35 +122,35 @@ body::before {
   background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.55) 70%);
 }
 .scan-frame {
-  width: 75%;
-  max-width: 320px;
-  aspect-ratio: 1;
+  width: 96%;
+  max-width: 700px;
+  aspect-ratio: 1.5;  /* wider rectangle รองรับ barcode ทุกแนว */
   border: 2.5px solid transparent;
   position: relative;
-  border-radius: 24px;
+  border-radius: 28px;
 }
 .scan-corner {
   position: absolute;
-  width: 36px;
-  height: 36px;
-  border: 4px solid #4ade80;
-  filter: drop-shadow(0 0 8px rgba(74,222,128,0.70));
+  width: 56px;
+  height: 56px;
+  border: 6px solid #4ade80;
+  filter: drop-shadow(0 0 16px rgba(74,222,128,0.95));
 }
-.scan-corner.tl { top: -2px; left: -2px; border-right: none; border-bottom: none; border-radius: 12px 0 0 0; }
-.scan-corner.tr { top: -2px; right: -2px; border-left: none; border-bottom: none; border-radius: 0 12px 0 0; }
-.scan-corner.bl { bottom: -2px; left: -2px; border-right: none; border-top: none; border-radius: 0 0 0 12px; }
-.scan-corner.br { bottom: -2px; right: -2px; border-left: none; border-top: none; border-radius: 0 0 12px 0; }
+.scan-corner.tl { top: -3px; left: -3px; border-right: none; border-bottom: none; border-radius: 16px 0 0 0; }
+.scan-corner.tr { top: -3px; right: -3px; border-left: none; border-bottom: none; border-radius: 0 16px 0 0; }
+.scan-corner.bl { bottom: -3px; left: -3px; border-right: none; border-top: none; border-radius: 0 0 0 16px; }
+.scan-corner.br { bottom: -3px; right: -3px; border-left: none; border-top: none; border-radius: 0 0 16px 0; }
 .scan-line {
   position: absolute;
   top: 0;
-  left: 10px;
-  right: 10px;
+  left: 12px;
+  right: 12px;
   height: 3px;
   background: linear-gradient(90deg, transparent, #4ade80, transparent);
   filter: blur(1px);
-  animation: scan-sweep 2s ease-in-out infinite;
+  animation: scan-sweep 1.5s ease-in-out infinite;
   border-radius: 99px;
-  box-shadow: 0 0 12px #4ade80;
+  box-shadow: 0 0 14px #4ade80;
 }
 @keyframes scan-sweep {
   0%, 100% { top: 10px; }
@@ -336,15 +336,77 @@ let isScanning = false;
 
 async function startScanner() {
   try {
-    html5QrCode = new Html5Qrcode("reader");
+    html5QrCode = new Html5Qrcode("reader", {
+      // รองรับ barcode รูปแบบต่าง ๆ ที่ใช้บ่อยกับพัสดุไทย
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.CODE_128,    // FLASH, SPX, J&T
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.CODE_93,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.ITF,          // SPX, LEX
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODABAR,
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.DATA_MATRIX,
+        Html5QrcodeSupportedFormats.PDF_417,
+      ],
+      // ใช้ native BarcodeDetector API ที่เร็วกว่ามาก (Chrome/Edge บนมือถือรองรับ)
+      useBarCodeDetectorIfSupported: true,
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: true
+      }
+    });
+    
+    // คำนวณขนาด qrbox ใหญ่ขึ้น — ครอบคลุมพื้นที่กว้างเพื่อรองรับโฟกัสไม่ชัด/บาร์โค้ดเอียง
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const qrboxWidth = Math.min(Math.floor(vw * 0.92), 720);
+    const qrboxHeight = Math.floor(qrboxWidth * 0.65);  // 1.5:1 aspect ratio (wider)
+    
     await html5QrCode.start(
       { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 280, height: 280 } },
+      {
+        fps: 30,  // เพิ่มเป็น 30 fps สแกนเร็วขึ้นมาก
+        qrbox: { width: qrboxWidth, height: qrboxHeight },
+        aspectRatio: 1.5,
+        disableFlip: false,
+        rememberLastUsedCamera: true,
+        // ปรับ video constraints รองรับโฟกัสไม่ชัด + macro mode + zoom
+        videoConstraints: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 2560, min: 1280 },   // ความละเอียดสูงขึ้น = ชัดขึ้นเมื่อโฟกัสไม่ตรง
+          height: { ideal: 1440, min: 720 },
+          frameRate: { ideal: 30, min: 15 },
+          focusMode: { ideal: "continuous" },
+          // ลำดับ priorities สำหรับ camera ที่โฟกัสไม่แม่นยำ
+          advanced: [
+            { focusMode: "continuous" },
+            { exposureMode: "continuous" },
+            { whiteBalanceMode: "continuous" },
+            { focusDistance: { ideal: 0.05, min: 0 } },  // macro - ใกล้มาก
+            { focusDistance: { ideal: 0.3 } },           // ปกติ
+            { focusDistance: { ideal: 1.0 } },           // ไกล
+            { zoom: 1.5 },                                // zoom in เล็กน้อย รองรับ barcode เล็ก
+            { iso: { ideal: 400 } }                       // ISO สูงขึ้นสำหรับที่แสงน้อย
+          ]
+        }
+      },
       onScanSuccess,
       () => {}
     );
     isScanning = true;
     document.getElementById('loadingEl').style.display = 'none';
+    
+    // ลองเปิด torch (flashlight) อัตโนมัติเป็น hint (user ปิดได้)
+    try {
+      const track = html5QrCode.getRunningTrackCameraCapabilities();
+      if (track && track.torchFeature && track.torchFeature().isSupported()) {
+        // มี torch — เพิ่มปุ่ม
+        showTorchButton();
+      }
+    } catch (e) { /* skip */ }
   } catch (err) {
     document.getElementById('loadingEl').innerHTML = 
       '<div style="color:#fca5a5;text-align:center;">' +
@@ -354,6 +416,27 @@ async function startScanner() {
       '<small style="opacity:.6;">ลองกรอกเลขพัสดุด้านล่างแทน</small>' +
       '</div>';
   }
+}
+
+function showTorchButton() {
+  let torchBtn = document.getElementById('torchBtn');
+  if (torchBtn) return;
+  torchBtn = document.createElement('button');
+  torchBtn.id = 'torchBtn';
+  torchBtn.style.cssText = 'position:fixed;bottom:140px;right:14px;width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,0.65);border:1px solid rgba(255,255,255,0.30);color:#fff;display:grid;place-items:center;cursor:pointer;z-index:60;backdrop-filter:blur(10px);';
+  torchBtn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H8L6 8h12l-2-6z"/><path d="M9 8v4l3 7 3-7V8"/></svg>';
+  let on = false;
+  torchBtn.onclick = async () => {
+    try {
+      on = !on;
+      const track = html5QrCode.getRunningTrackCameraCapabilities();
+      if (track && track.torchFeature) {
+        await track.torchFeature().apply(on);
+        torchBtn.style.background = on ? 'rgba(251,191,36,0.55)' : 'rgba(0,0,0,0.65)';
+      }
+    } catch (e) {}
+  };
+  document.body.appendChild(torchBtn);
 }
 
 function onScanSuccess(decoded) {
