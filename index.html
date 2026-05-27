@@ -6,7 +6,7 @@
 <title>Scanner — ระบบจัดการสินค้าส่งคืน</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Mitr:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 :root {
@@ -19,8 +19,8 @@
   --text-w: #ffffff;
   --text-ws: rgba(255,255,255,0.75);
   --text-wm: rgba(255,255,255,0.55);
-  --font-display: 'Mitr', sans-serif;
-  --font-body: 'Mitr', sans-serif;
+  --font-display: 'Prompt', sans-serif;
+  --font-body: 'Prompt', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -439,9 +439,42 @@ function showTorchButton() {
   document.body.appendChild(torchBtn);
 }
 
+// ============ BEEP SOUND (Web Audio API) ============
+let audioCtx = null;
+function playBeep() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    const now = audioCtx.currentTime;
+    
+    // เสียง "ติ๊ด" แบบเครื่องอ่าน barcode (1000Hz beep สั้น)
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1000, now);
+    osc.frequency.setValueAtTime(1500, now + 0.05);  // pitch up เล็กน้อย
+    
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.35, now + 0.01);  // quick attack
+    gain.gain.setValueAtTime(0.35, now + 0.10);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);  // decay
+    
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  } catch (err) {
+    console.warn('Beep failed:', err);
+  }
+}
+
 function onScanSuccess(decoded) {
   if (!isScanning) return;
   isScanning = false;
+  
+  // 🔊 เสียงติ๊ด เมื่อสแกนผ่าน
+  playBeep();
   
   // แสดง banner
   document.getElementById('resultCode').textContent = decoded;
