@@ -278,6 +278,41 @@ body::before {
   margin-bottom: 4px;
 }
 .result-banner small { font-size: 11px; opacity: 0.8; }
+/* Camera switcher button (รองรับ webcam หลายตัว) */
+.cam-switch-btn {
+  position: fixed;
+  bottom: 140px;
+  left: 14px;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
+  background: rgba(0,0,0,0.65);
+  border: 1px solid rgba(255,255,255,0.30);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 60;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-family: inherit;
+  transition: all .15s;
+}
+.cam-switch-btn:hover {
+  background: rgba(0,0,0,0.85);
+  border-color: rgba(255,255,255,0.50);
+}
+.cam-switch-btn:active { transform: scale(0.95); }
+.cam-switch-btn svg { flex-shrink: 0; }
+.cam-switch-btn .cam-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>
 </head>
 <body>
@@ -333,18 +368,19 @@ body::before {
 <script>
 let html5QrCode = null;
 let isScanning = false;
+let availableCameras = [];
+let currentCameraIdx = 0;
 
 async function startScanner() {
   try {
     html5QrCode = new Html5Qrcode("reader", {
-      // รองรับ barcode รูปแบบต่าง ๆ ที่ใช้บ่อยกับพัสดุไทย
       formatsToSupport: [
-        Html5QrcodeSupportedFormats.CODE_128,    // FLASH, SPX, J&T
+        Html5QrcodeSupportedFormats.CODE_128,
         Html5QrcodeSupportedFormats.CODE_39,
         Html5QrcodeSupportedFormats.CODE_93,
         Html5QrcodeSupportedFormats.EAN_13,
         Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.ITF,          // SPX, LEX
+        Html5QrcodeSupportedFormats.ITF,
         Html5QrcodeSupportedFormats.UPC_A,
         Html5QrcodeSupportedFormats.UPC_E,
         Html5QrcodeSupportedFormats.CODABAR,
@@ -352,44 +388,71 @@ async function startScanner() {
         Html5QrcodeSupportedFormats.DATA_MATRIX,
         Html5QrcodeSupportedFormats.PDF_417,
       ],
-      // ใช้ native BarcodeDetector API ที่เร็วกว่ามาก (Chrome/Edge บนมือถือรองรับ)
       useBarCodeDetectorIfSupported: true,
-      experimentalFeatures: {
-        useBarCodeDetectorIfSupported: true
-      }
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
     });
     
-    // คำนวณขนาด qrbox ใหญ่ขึ้น — ครอบคลุมพื้นที่กว้างเพื่อรองรับโฟกัสไม่ชัด/บาร์โค้ดเอียง
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const qrboxWidth = Math.min(Math.floor(vw * 0.92), 720);
-    const qrboxHeight = Math.floor(qrboxWidth * 0.65);  // 1.5:1 aspect ratio (wider)
+    const qrboxHeight = Math.floor(qrboxWidth * 0.65);
+    
+    // ★ List cameras ก่อน เพื่อ detect webcam / mobile
+    try {
+      availableCameras = await Html5Qrcode.getCameras();
+      console.log('Found cameras:', availableCameras.length, availableCameras);
+    } catch (e) {
+      console.warn('getCameras failed:', e);
+      availableCameras = [];
+    }
+    
+    // Show camera switcher ถ้ามีหลายตัว
+    if (availableCameras.length > 1) {
+      showCameraSwitchButton();
+    }
+    
+    // ★ เลือกกล้องที่เหมาะสม
+    let cameraConfig;
+    
+    if (availableCameras.length === 0) {
+      // Fallback ใช้ facingMode (มือถือ)
+      cameraConfig = { facingMode: { ideal: "environment" } };
+    } else if (availableCameras.length === 1) {
+      // มีแค่ตัวเดียว (เช่น webcam laptop) → ใช้ deviceId
+      cameraConfig = availableCameras[0].id;
+      currentCameraIdx = 0;
+    } else {
+      // มีหลายตัว — เลือก back camera ก่อนถ้ามี
+      const backIdx = availableCameras.findIndex(c => {
+        const label = (c.label || '').toLowerCase();
+        return label.includes('back') || label.includes('rear') || label.includes('environment');
+      });
+      currentCameraIdx = backIdx >= 0 ? backIdx : 0;
+      cameraConfig = availableCameras[currentCameraIdx].id;
+    }
     
     await html5QrCode.start(
-      { facingMode: "environment" },
+      cameraConfig,
       {
-        fps: 30,  // เพิ่มเป็น 30 fps สแกนเร็วขึ้นมาก
+        fps: 30,
         qrbox: { width: qrboxWidth, height: qrboxHeight },
         aspectRatio: 1.5,
         disableFlip: false,
         rememberLastUsedCamera: true,
-        // ปรับ video constraints รองรับโฟกัสไม่ชัด + macro mode + zoom
         videoConstraints: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 2560, min: 1280 },   // ความละเอียดสูงขึ้น = ชัดขึ้นเมื่อโฟกัสไม่ตรง
+          width: { ideal: 2560, min: 1280 },
           height: { ideal: 1440, min: 720 },
           frameRate: { ideal: 30, min: 15 },
           focusMode: { ideal: "continuous" },
-          // ลำดับ priorities สำหรับ camera ที่โฟกัสไม่แม่นยำ
           advanced: [
             { focusMode: "continuous" },
             { exposureMode: "continuous" },
             { whiteBalanceMode: "continuous" },
-            { focusDistance: { ideal: 0.05, min: 0 } },  // macro - ใกล้มาก
-            { focusDistance: { ideal: 0.3 } },           // ปกติ
-            { focusDistance: { ideal: 1.0 } },           // ไกล
-            { zoom: 1.5 },                                // zoom in เล็กน้อย รองรับ barcode เล็ก
-            { iso: { ideal: 400 } }                       // ISO สูงขึ้นสำหรับที่แสงน้อย
+            { focusDistance: { ideal: 0.05, min: 0 } },
+            { focusDistance: { ideal: 0.3 } },
+            { focusDistance: { ideal: 1.0 } },
+            { zoom: 1.5 },
+            { iso: { ideal: 400 } }
           ]
         }
       },
@@ -399,15 +462,28 @@ async function startScanner() {
     isScanning = true;
     document.getElementById('loadingEl').style.display = 'none';
     
-    // ลองเปิด torch (flashlight) อัตโนมัติเป็น hint (user ปิดได้)
     try {
       const track = html5QrCode.getRunningTrackCameraCapabilities();
       if (track && track.torchFeature && track.torchFeature().isSupported()) {
-        // มี torch — เพิ่มปุ่ม
         showTorchButton();
       }
     } catch (e) { /* skip */ }
   } catch (err) {
+    console.error('startScanner error:', err);
+    // ถ้า fail ลอง fallback ไป facingMode user (กล้องหน้า)
+    if (availableCameras.length === 0 && !err._fallbackTried) {
+      err._fallbackTried = true;
+      try {
+        await html5QrCode.start(
+          { facingMode: { ideal: "user" } },
+          { fps: 30, qrbox: { width: 320, height: 200 }, aspectRatio: 1.5 },
+          onScanSuccess, () => {}
+        );
+        isScanning = true;
+        document.getElementById('loadingEl').style.display = 'none';
+        return;
+      } catch (err2) { /* ตกไป error message */ }
+    }
     document.getElementById('loadingEl').innerHTML = 
       '<div style="color:#fca5a5;text-align:center;">' +
       '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto 14px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
@@ -416,6 +492,65 @@ async function startScanner() {
       '<small style="opacity:.6;">ลองกรอกเลขพัสดุด้านล่างแทน</small>' +
       '</div>';
   }
+}
+
+// สลับกล้อง (webcam laptop อาจมีหลายตัว / มือถือมี front+back)
+async function switchCamera() {
+  if (!html5QrCode || availableCameras.length < 2) return;
+  try {
+    await html5QrCode.stop();
+  } catch(e) {}
+  
+  currentCameraIdx = (currentCameraIdx + 1) % availableCameras.length;
+  const cam = availableCameras[currentCameraIdx];
+  
+  try {
+    const vw = window.innerWidth;
+    const qrboxWidth = Math.min(Math.floor(vw * 0.92), 720);
+    const qrboxHeight = Math.floor(qrboxWidth * 0.65);
+    
+    await html5QrCode.start(
+      cam.id,
+      {
+        fps: 30,
+        qrbox: { width: qrboxWidth, height: qrboxHeight },
+        aspectRatio: 1.5,
+        disableFlip: false,
+        videoConstraints: {
+          deviceId: { exact: cam.id },
+          width: { ideal: 2560, min: 1280 },
+          height: { ideal: 1440, min: 720 },
+          focusMode: { ideal: "continuous" }
+        }
+      },
+      onScanSuccess,
+      () => {}
+    );
+    isScanning = true;
+    
+    // อัพเดท label ของปุ่ม
+    const btn = document.getElementById('cameraSwitchBtn');
+    if (btn) {
+      const camLabel = (cam.label || 'กล้อง ' + (currentCameraIdx + 1)).substring(0, 18);
+      const labelEl = btn.querySelector('.cam-label');
+      if (labelEl) labelEl.textContent = camLabel;
+    }
+  } catch (err) {
+    console.error('switchCamera failed:', err);
+    alert('ไม่สามารถสลับกล้องได้: ' + err.message);
+  }
+}
+
+function showCameraSwitchButton() {
+  if (document.getElementById('cameraSwitchBtn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'cameraSwitchBtn';
+  btn.className = 'cam-switch-btn';
+  const cam = availableCameras[currentCameraIdx];
+  const camLabel = (cam.label || 'กล้อง ' + (currentCameraIdx + 1)).substring(0, 18);
+  btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z"/><path d="M7 12a5 5 0 1 0 10 0"/><polyline points="11 9 7 12 11 15"/></svg> <span class="cam-label">' + camLabel + '</span>';
+  btn.addEventListener('click', switchCamera);
+  document.body.appendChild(btn);
 }
 
 function showTorchButton() {
