@@ -590,7 +590,7 @@ function showTorchButton() {
   document.body.appendChild(torchBtn);
 }
 
-// ============ BEEP SOUND (Web Audio API) ============
+// ============ BEEP SOUND — แบบเครื่องสแกนบาร์โค้ดจริง ============
 let audioCtx = null;
 function playBeep() {
   try {
@@ -599,22 +599,29 @@ function playBeep() {
     
     const now = audioCtx.currentTime;
     
-    // เสียง "ติ๊ด" แบบเครื่องอ่าน barcode (1000Hz beep สั้น)
+    // เครื่องสแกนบาร์โค้ดจริง = เสียง "ติ๊ด" แหลมคม ความถี่สูงคงที่ (~2700Hz)
+    // ใช้ square wave ให้คมแบบ electronic + แบนด์พาสให้แหลม
     const osc = audioCtx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1000, now);
-    osc.frequency.setValueAtTime(1500, now + 0.05);  // pitch up เล็กน้อย
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(2730, now);  // ความถี่มาตรฐานเครื่องสแกน
     
     const gain = audioCtx.createGain();
+    // envelope สั้น คม: attack เร็วมาก, sustain คงที่, ตัดจบเฉียบ
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.35, now + 0.01);  // quick attack
-    gain.gain.setValueAtTime(0.35, now + 0.10);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);  // decay
+    gain.gain.linearRampToValueAtTime(0.28, now + 0.002);  // attack เฉียบ 2ms
+    gain.gain.setValueAtTime(0.28, now + 0.085);            // hold คงที่
+    gain.gain.linearRampToValueAtTime(0, now + 0.095);      // ตัดจบเร็ว
     
-    osc.connect(gain);
+    // low-pass กรองความแสบของ square wave ออกนิดให้ฟังสบายขึ้น
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(4000, now);
+    
+    osc.connect(lp);
+    lp.connect(gain);
     gain.connect(audioCtx.destination);
     osc.start(now);
-    osc.stop(now + 0.15);
+    osc.stop(now + 0.1);
   } catch (err) {
     console.warn('Beep failed:', err);
   }
@@ -679,6 +686,24 @@ document.getElementById('manualInput').addEventListener('keydown', (e) => {
 
 // Start camera on page load
 window.addEventListener('DOMContentLoaded', startScanner);
+
+// ★ ปลดล็อกเสียงบนมือถือ (iOS/Android block audio จนกว่าจะมี user gesture)
+function unlockAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    // เล่นเสียงเงียบสั้นๆ เพื่อ "ปลุก" audio engine
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0, audioCtx.currentTime);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.01);
+  } catch (e) {}
+  document.removeEventListener('touchstart', unlockAudio);
+  document.removeEventListener('click', unlockAudio);
+}
+document.addEventListener('touchstart', unlockAudio, { once: true });
+document.addEventListener('click', unlockAudio, { once: true });
 </script>
 </body>
 </html>
